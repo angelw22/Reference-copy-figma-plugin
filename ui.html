@@ -1,0 +1,216 @@
+<link rel="stylesheet" href="main.css">
+
+<style>
+  body {
+    font-family: 'Roboto', sans-serif;
+  }
+  .description {
+    font-size: 12px;
+    color: #4F4F4F;
+  }
+  #data-table {
+    border: 1px solid black;
+    border-collapse: collapse;
+    font-size: 12px;
+    margin: 0;
+    padding: 0;
+  }
+  td {
+    width: 120px;
+  }
+  #highlight-preview {
+    font-size: 18px;
+    vertical-align: text-bottom;
+    -webkit-text-fill-color: black;
+    -webkit-text-stroke-width: 1px;
+    -webkit-text-stroke-color: #E49B0F;
+  }
+  .container {
+    padding: 20px;
+    background-color: #EDF3FA;
+    border-radius: 8px;
+  }
+</style>
+
+
+
+<div class="container">
+  <div id="highlight-preview">Highlight preview</div>
+  <div>To change the highlight style, edit your local Colour Styles > Plugin > Highlights.</div><br />
+  
+  <button id="remove-highlights">Remove all existing highlights</button>
+</div>
+<h4>Sync Google Sheet</h4>
+<input id="sheets-link">
+<button id="sync">Sync</button>
+<div id="list-container" style="display:none">
+  Select the sheet you want to use
+  <select name="Sheet name" id="sheet-list"></select>
+  <br/>
+  <button id="get-copy">Get Copy</button>
+</div>
+<span id="sheetname-error-msg" style="color: red"></span>
+
+<div id="data-table-container" style="display: none">
+  Select the columns with copy you want to use:
+  <button id="select-columns">Select columns</button>
+  <table id="data-table"></table>
+</div>
+
+<div id="copy-contents" style="display: none">
+
+</div>
+
+
+<script>
+  //Enter api key
+  const apiKey;
+  const sheetList = document.getElementById("sheet-list")
+  let spreadsheetId;
+  let sheetName;
+  let selectedCols = [];
+  let selectedCopy = [];
+
+  document.getElementById('sync').onclick = async () => {
+    document.getElementById('sheetname-error-msg').innerHTML = ""
+    let link = document.getElementById('sheets-link').value
+    try {
+      spreadsheetId = new RegExp("/spreadsheets/d/([a-zA-Z0-9-_]+)").exec(link)[1]  
+    } catch (e) {
+      console.log(e);
+      document.getElementById('sheetname-error-msg').innerHTML = "Please enter a valid google sheets link"
+    }
+    
+    //Reset existing items in sheet
+    sheetList.length = 0;
+    let url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/?key=${apiKey}` 
+
+    //check for non-empty spreadsheet ID
+    if (spreadsheetId) {
+      //http request to get information about spreadsheet 
+      try {
+        let request = new XMLHttpRequest();
+        let res;
+        request.open('GET', url)
+        request.responseType = 'text'
+        request.onload = () => {
+          res = JSON.parse(request.response)
+          console.log(res.sheets)
+          for (let i = 0; i < res.sheets.length; i++) {
+            sheetList.options.add(new Option(res.sheets[i].properties.title))
+          }
+          document.getElementById('list-container').style.display = "block";
+        };
+        request.send()
+      } catch (error) {
+        console.log(error);
+      }
+    } else {
+      document.getElementById('error-msg').innerHTML = "Please enter a valid google sheets link"
+    }
+  }
+
+  document.getElementById('get-copy').onclick = async () => {
+    sheetName = document.getElementById('sheet-list').value;
+    
+    let url2 = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${sheetName}/?key=AIzaSyARnCn60gMtdrUU04gONoUt7v-Da_yKIYY`
+
+
+    if (sheetName) {
+      try {
+        //http request to get table data 
+        let request = new XMLHttpRequest();
+        let res;
+        
+        request.open('GET', url2)
+        request.responseType = 'text'
+        request.onload = () => {
+          res = JSON.parse(request.response);
+          numOfColumns = res.values[0].length;
+
+          let table = document.getElementById('data-table')
+
+          //if there is existing table data, delete it 
+          if(table.hasChildNodes()) {
+            table.removeChild(table.firstChild);
+          } 
+
+          //construct table from selected sheet 
+          let body = document.createElement('tbody')
+          console.log('res is', res, res.values)
+          for (let i = 0; i < res.values.length; i++) {
+            var row = body.insertRow(i);
+            for (let j = 0; j < numOfColumns; j++) {
+              if (!res.values[i][j]) {
+                row.insertCell(j).innerHTML = " ";
+              } else {
+                row.insertCell(j).innerHTML = res.values[i][j];
+              }
+            }
+          }
+          //add checkboxes
+          var header = body.insertRow(0)
+          for(let k =0; k < numOfColumns; k++) {
+            var checkbox = document.createElement('input');
+            checkbox.type = "checkbox";
+            checkbox.name = "column-checkbox";
+            checkbox.value = k;
+            header.insertCell(k).appendChild(checkbox);
+          }
+
+          //add table contents and display
+          table.appendChild(body);
+          document.getElementById('data-table-container').style.display = "block"
+        };
+        request.send()
+      } catch (error) {
+        console.log(error);
+      }
+    }
+  }
+
+  document.getElementById('select-columns').onclick = async () => {
+    var url3 = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${sheetName}?key=${apiKey}&majorDimension=COLUMNS`
+    let res;
+    
+    //get selected columns & column id
+    var checkboxes = document.getElementsByName('column-checkbox');
+    for (let i = 0; i < checkboxes.length; i++) {
+      if (checkboxes[i].checked) {
+        selectedCols.push(checkboxes[i].value);
+      }   
+    }
+    
+    //get all copy based on column id 
+    try {
+      let request = new XMLHttpRequest();
+      request.open('GET', url3)
+      request.responseType = 'text'
+      request.onload = () => {
+        res = JSON.parse(request.response).values
+
+        console.log('selectedcols are', selectedCols);
+        selectedCols.forEach(el => {
+          console.log('el is ', el)
+            let arr = res[el]
+            selectedCopy = selectedCopy.concat(arr)
+        });
+        window.parent.postMessage({pluginMessage: {'type':'selected-copy', 'data': selectedCopy}}, '*')
+        document.getElementById('data-table-container').style.display = "none";
+      };
+      request.send()
+      
+    } catch (error) {
+      console.log(error);
+    }
+  }
+
+  document.getElementById('remove-highlights').onclick = () => {
+    window.parent.postMessage({pluginMessage: {'type':'remove-highlights'}}, '*')
+  }
+
+  window.addEventListener('message', function(e) {
+    console.log('received message:  ' + JSON.stringify(e.data), e);
+  });
+
+</script>
